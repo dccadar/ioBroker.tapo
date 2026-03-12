@@ -792,9 +792,6 @@ class Tapo extends utils.Adapter {
         const deviceId = id.split(".")[2];
         const stateName = id.split(".")[3];
         const command = id.split(".")[4];
-        if (id.split(".")[3] !== "remote") {
-          return;
-        }
         if (stateName === "exclude" && deviceId) {
           const exclude = state.val === true || state.val === "true";
           this.log.info(`Found stateName=excluded with val=${exclude} for device ${deviceId}`);
@@ -816,7 +813,9 @@ class Tapo extends utils.Adapter {
           await this.setStateAsync(id, exclude, true);
           return;
         }
-
+        if (id.split(".")[3] !== "remote") {
+          return;
+        }
         if (command === "Refresh") {
           this.deviceObjects[deviceId]
             .getDeviceInfo(true)
