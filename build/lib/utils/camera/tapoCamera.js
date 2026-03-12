@@ -18,6 +18,10 @@ var __copyProps = (to, from, except, desc) => {
   return to;
 };
 var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
@@ -46,7 +50,7 @@ const ERROR_CODES_MAP = {
   "-64304": "Maximum Pan/Tilt range reached",
   "-71103": "User ID is not authorized"
 };
-const _TAPOCamera = class extends import_onvifCamera.OnvifCamera {
+const _TAPOCamera = class _TAPOCamera extends import_onvifCamera.OnvifCamera {
   constructor(log, config) {
     super(log, config);
     this.log = log;
@@ -59,6 +63,7 @@ const _TAPOCamera = class extends import_onvifCamera.OnvifCamera {
     this.fetchAgent = new import_undici.Agent({
       connectTimeout: 5e3,
       connect: {
+        // TAPO devices have self-signed certificates
         rejectUnauthorized: false,
         ciphers: "AES256-SHA:AES128-GCM-SHA256"
       }
@@ -95,6 +100,7 @@ const _TAPOCamera = class extends import_onvifCamera.OnvifCamera {
   fetch(url, data) {
     return fetch(url, {
       headers: this.getHeaders(),
+      // @ts-expect-error Dispatcher type not there
       dispatcher: this.fetchAgent,
       ...data
     });
@@ -524,18 +530,14 @@ const _TAPOCamera = class extends import_onvifCamera.OnvifCamera {
     const notifications = operations.find((r) => r.method === "getMsgPushConfig");
     const motionDetection = operations.find((r) => r.method === "getDetectionConfig");
     const led = operations.find((r) => r.method === "getLedStatus");
-    if (!alert)
-      this.log.debug("No alert config found");
-    if (!lensMask)
-      this.log.debug("No lens mask config found");
-    if (!notifications)
-      this.log.debug("No notifications config found");
-    if (!motionDetection)
-      this.log.debug("No motion detection config found");
-    if (!led)
-      this.log.debug("No led config found");
+    if (!alert) this.log.debug("No alert config found");
+    if (!lensMask) this.log.debug("No lens mask config found");
+    if (!notifications) this.log.debug("No notifications config found");
+    if (!motionDetection) this.log.debug("No motion detection config found");
+    if (!led) this.log.debug("No led config found");
     return {
       alarm: alert ? alert.result.msg_alarm.chn1_msg_alarm_info.enabled === "on" : void 0,
+      // Watch out for the inversion
       eyes: lensMask ? lensMask.result.lens_mask.lens_mask_info.enabled === "off" : void 0,
       notifications: notifications ? notifications.result.msg_push.chn1_msg_push_info.notification_enabled === "on" : void 0,
       motionDetection: motionDetection ? motionDetection.result.motion_detection.motion_det.enabled === "on" : void 0,
@@ -582,13 +584,13 @@ const _TAPOCamera = class extends import_onvifCamera.OnvifCamera {
     return json.error_code !== 0;
   }
 };
-let TAPOCamera = _TAPOCamera;
-TAPOCamera.SERVICE_MAP = {
+_TAPOCamera.SERVICE_MAP = {
   eyes: (value) => ({
     method: "setLensMaskConfig",
     params: {
       lens_mask: {
         lens_mask_info: {
+          // Watch out for the inversion
           enabled: value ? "off" : "on"
         }
       }
@@ -636,6 +638,7 @@ TAPOCamera.SERVICE_MAP = {
     }
   })
 };
+let TAPOCamera = _TAPOCamera;
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   TAPOCamera

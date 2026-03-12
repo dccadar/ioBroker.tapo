@@ -14,6 +14,10 @@ var __copyProps = (to, from, except, desc) => {
   return to;
 };
 var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
@@ -46,6 +50,7 @@ class Tapo extends utils.Adapter {
     this.on("unload", this.onUnload.bind(this));
     this.devices = {};
     this.deviceObjects = {};
+    this.excludedDevices = /* @__PURE__ */ new Set();
     this.json2iob = new import_json2iob.default(this);
     this.requestClient = import_axios.default.create({
       httpsAgent: new import_https.default.Agent({
@@ -88,6 +93,9 @@ class Tapo extends utils.Adapter {
       99
     ]);
   }
+  /**
+   * Is called when databases are connected and adapter received configuration.
+   */
   async onReady() {
     this.setState("info.connection", false, true);
     if (this.config.interval < 0.5) {
@@ -311,6 +319,27 @@ class Tapo extends utils.Adapter {
           },
           native: {}
         });
+        await this.setObjectNotExistsAsync(id + ".exclude", {
+          type: "state",
+          common: {
+            name: "Exclude device from polling/init",
+            type: "boolean",
+            role: "switch.enable",
+            read: true,
+            write: true,
+            def: false
+          },
+          native: {}
+        });
+        const excludeState = await this.getStateAsync(id + ".exclude");
+        const isExcluded = (excludeState == null ? void 0 : excludeState.val) === true;
+        if (isExcluded) {
+          this.excludedDevices.add(id);
+          this.log.info(`Device ${id} excluded`);
+        } else {
+          this.excludedDevices.delete(id);
+          this.log.info(`Device ${id} excluded removed`);
+        }
         await this.setObjectNotExistsAsync(id + ".remote", {
           type: "channel",
           common: {
@@ -473,6 +502,10 @@ class Tapo extends utils.Adapter {
           }
         }
         this.json2iob.parse(id, this.devices[id]);
+        if (isExcluded) {
+          this.log.info(`Device ${id} is excluded, skipping initialization`);
+          continue;
+        }
         if (this.devices[id].ip) {
           const initResult = await this.initDevice(id).then(() => {
             this.log.info(`Initialized ${id}`);
@@ -500,6 +533,10 @@ class Tapo extends utils.Adapter {
     await this.setStateAsync("deviceList", JSON.stringify(this.devices), true);
   }
   async initDevice(id) {
+    if (this.excludedDevices.has(id)) {
+      this.log.info(`Skip init for excluded device ${id}`);
+      return;
+    }
     const device = this.devices[id];
     if (!device.ip) {
       this.log.warn(`No IP found for ${id}`);
@@ -617,6 +654,10 @@ class Tapo extends utils.Adapter {
   async updateDevices() {
     try {
       for (const deviceId in this.deviceObjects) {
+        if (this.excludedDevices.has(deviceId)) {
+          this.log.debug(`Skip excluded device ${deviceId}`);
+          continue;
+        }
         if (this.deviceObjects[deviceId].getStatus) {
           this.log.debug("Receive camera status");
           const status = await this.deviceObjects[deviceId].getStatus().catch((error) => {
@@ -691,6 +732,9 @@ class Tapo extends utils.Adapter {
   async refreshToken() {
     this.log.debug("Refresh token");
   }
+  /**
+   * Is called when adapter shuts down - callback has to be called under any circumstances!
+   */
   onUnload(callback) {
     try {
       this.setState("info.connection", false, true);
@@ -704,12 +748,38 @@ class Tapo extends utils.Adapter {
       callback();
     }
   }
+  /**
+   * Is called if a subscribed state changes
+   */
   async onStateChange(id, state) {
+    var _a;
     if (state) {
       if (!state.ack) {
         const deviceId = id.split(".")[2];
+        const stateName = id.split(".")[3];
         const command = id.split(".")[4];
         if (id.split(".")[3] !== "remote") {
+          return;
+        }
+        if (stateName === "exclude" && deviceId) {
+          const exclude = state.val === true || state.val === "true";
+          this.log.info(`Found stateName=excluded with val=${exclude} for device ${deviceId}`);
+          if (exclude) {
+            this.excludedDevices.add(deviceId);
+            delete this.deviceObjects[deviceId];
+            this.log.info(`Device ${deviceId} excluded`);
+          } else {
+            this.excludedDevices.delete(deviceId);
+            this.log.info(`Device ${deviceId} excluded removed`);
+            if ((_a = this.devices[deviceId]) == null ? void 0 : _a.ip) {
+              await this.initDevice(deviceId).catch((e) => {
+                this.log.error(`Re-init for ${deviceId} failed: ${e}`);
+              });
+            } else {
+              this.log.warn(`Cannot re-init ${deviceId}: no IP known`);
+            }
+          }
+          await this.setStateAsync(id, exclude, true);
           return;
         }
         if (command === "Refresh") {

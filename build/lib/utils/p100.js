@@ -18,6 +18,10 @@ var __copyProps = (to, from, except, desc) => {
   return to;
 };
 var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
@@ -134,6 +138,7 @@ class P100 {
     this.privateKey = privateKey;
     this.publicKey = publicKey.toString("utf8");
   }
+  //old tapo requests
   async handshake() {
     const URL = "http://" + this.ip + "/app";
     const payload = {
@@ -274,6 +279,7 @@ class P100 {
     const b_arr2 = decoded.slice(16, 32);
     this.tpLinkCipher = new import_tpLinkCipher.default(this.log, b_arr, b_arr2);
   }
+  //new tapo klap requests
   async handshake_new() {
     this.log.debug("Trying new handshake");
     const local_seed = this._crypto.randomBytes(16);
@@ -509,12 +515,18 @@ class P100 {
       });
     }
   }
+  /**
+   * Cached value of `sysinfo.device_id`  if set.
+   */
   get id() {
     if (this.getSysInfo()) {
       return this.getSysInfo().device_id;
     }
     return "";
   }
+  /**
+   * Cached value of `sysinfo.device_id`  if set.
+   */
   get name() {
     if (this.getSysInfo()) {
       return Buffer.from(this.getSysInfo().nickname, "base64").toString("utf8");
@@ -689,6 +701,4 @@ class P100 {
     }
   }
 }
-// Annotate the CommonJS export names for ESM import in node:
-0 && (module.exports = {});
 //# sourceMappingURL=p100.js.map

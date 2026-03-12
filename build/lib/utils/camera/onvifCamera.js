@@ -78,8 +78,7 @@ class OnvifCamera {
     const onvifDevice = await this.getDevice();
     return new Promise((resolve, reject) => {
       onvifDevice.getDeviceInformation((err, deviceInformation) => {
-        if (err)
-          return reject(err);
+        if (err) return reject(err);
         resolve(deviceInformation);
       });
     });
