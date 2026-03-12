@@ -19,6 +19,7 @@ import P110 from "./lib/utils/p110";
 class Tapo extends utils.Adapter {
   private devices: { [key: string]: any };
   private deviceObjects: { [key: string]: any };
+  private excludedDevices: Set<string>;
   private json2iob: Json2iob;
   private secret: Buffer;
   private requestClient: AxiosInstance;
@@ -42,6 +43,7 @@ class Tapo extends utils.Adapter {
     this.on("unload", this.onUnload.bind(this));
     this.devices = {};
     this.deviceObjects = {};
+    this.excludedDevices = new Set();
     this.json2iob = new Json2iob(this);
     this.requestClient = axios.create({
       httpsAgent: new https.Agent({
@@ -487,7 +489,30 @@ class Tapo extends utils.Adapter {
               this.log.warn(`No IP found for ${id} put the device online or set the ip state manually`);
             }
           }
+          await this.setObjectNotExistsAsync(id + ".exclude", {
+            type: "state",
+            common: {
+              name: "Exclude device from polling/init",
+              type: "boolean",
+              role: "switch.enable",
+              read: true,
+              write: true,
+              def: false,
+            },
+            native: {},
+          });
+          const excludeState = await this.getStateAsync(id + ".exclude");
+          const isExcluded = excludeState?.val === true;
+          if (isExcluded) {
+            this.excludedDevices.add(id);
+          } else {
+            this.excludedDevices.delete(id);
+          }
           this.json2iob.parse(id, this.devices[id]);
+          if (isExcluded) {
+            this.log.info(`Device ${id} is excluded, skipping initialization`);
+            continue;
+          }
           if (this.devices[id].ip) {
             const initResult = await this.initDevice(id)
               .then(() => {
@@ -520,6 +545,10 @@ class Tapo extends utils.Adapter {
     await this.setStateAsync("deviceList", JSON.stringify(this.devices), true);
   }
   async initDevice(id: string): Promise<void> {
+    if (this.excludedDevices.has(id)) {
+      this.log.info(`Skip init for excluded device ${id}`);
+      return;
+    }
     const device = this.devices[id];
     if (!device.ip) {
       this.log.warn(`No IP found for ${id}`);
@@ -649,6 +678,10 @@ class Tapo extends utils.Adapter {
   async updateDevices(): Promise<void> {
     try {
       for (const deviceId in this.deviceObjects) {
+        if (this.excludedDevices.has(deviceId)) {
+          this.log.debug(`Skip excluded device ${deviceId}`);
+          continue;
+        }
         if (this.deviceObjects[deviceId].getStatus) {
           this.log.debug("Receive camera status");
           const status = await this.deviceObjects[deviceId].getStatus().catch((error: any) => {
@@ -755,8 +788,29 @@ class Tapo extends utils.Adapter {
     if (state) {
       if (!state.ack) {
         const deviceId = id.split(".")[2];
+        const stateName = id.split(".")[3];
         const command = id.split(".")[4];
         if (id.split(".")[3] !== "remote") {
+          return;
+        }
+        if (stateName === "exclude" && deviceId) {
+          const exclude = state.val === true || state.val === "true";
+          if (exclude) {
+            this.excludedDevices.add(deviceId);
+            delete this.deviceObjects[deviceId];
+            this.log.info(`Device ${deviceId} excluded`);
+          } else {
+            this.excludedDevices.delete(deviceId);
+            this.log.info(`Device ${deviceId} included`);
+            if (this.devices[deviceId]?.ip) {
+              await this.initDevice(deviceId).catch((e) => {
+                this.log.error(`Re-init for ${deviceId} failed: ${e}`);
+              });
+            } else {
+              this.log.warn(`Cannot re-init ${deviceId}: no IP known`);
+            }
+          }
+          await this.setStateAsync(id, exclude, true);
           return;
         }
 
