@@ -316,6 +316,27 @@ class Tapo extends utils.Adapter {
             },
             native: {},
           });
+          await this.setObjectNotExistsAsync(id + ".exclude", {
+            type: "state",
+            common: {
+              name: "Exclude device from polling/init",
+              type: "boolean",
+              role: "switch.enable",
+              read: true,
+              write: true,
+              def: false,
+            },
+            native: {},
+          });
+          const excludeState = await this.getStateAsync(id + ".exclude");
+          const isExcluded = excludeState?.val === true;
+          if (isExcluded) {
+            this.excludedDevices.add(id);
+            this.log.info(`Device ${id} excluded`);
+          } else {
+            this.excludedDevices.delete(id);
+            this.log.info(`Device ${id} excluded removed`);
+          }
           await this.setObjectNotExistsAsync(id + ".remote", {
             type: "channel",
             common: {
@@ -488,25 +509,6 @@ class Tapo extends utils.Adapter {
               });
               this.log.warn(`No IP found for ${id} put the device online or set the ip state manually`);
             }
-          }
-          await this.setObjectNotExistsAsync(id + ".exclude", {
-            type: "state",
-            common: {
-              name: "Exclude device from polling/init",
-              type: "boolean",
-              role: "switch.enable",
-              read: true,
-              write: true,
-              def: false,
-            },
-            native: {},
-          });
-          const excludeState = await this.getStateAsync(id + ".exclude");
-          const isExcluded = excludeState?.val === true;
-          if (isExcluded) {
-            this.excludedDevices.add(id);
-          } else {
-            this.excludedDevices.delete(id);
           }
           this.json2iob.parse(id, this.devices[id]);
           if (isExcluded) {
@@ -795,13 +797,14 @@ class Tapo extends utils.Adapter {
         }
         if (stateName === "exclude" && deviceId) {
           const exclude = state.val === true || state.val === "true";
+          this.log.info(`Found stateName=excluded with val=${exclude} for device ${deviceId}`);
           if (exclude) {
             this.excludedDevices.add(deviceId);
             delete this.deviceObjects[deviceId];
             this.log.info(`Device ${deviceId} excluded`);
           } else {
             this.excludedDevices.delete(deviceId);
-            this.log.info(`Device ${deviceId} included`);
+            this.log.info(`Device ${deviceId} excluded removed`);
             if (this.devices[deviceId]?.ip) {
               await this.initDevice(deviceId).catch((e) => {
                 this.log.error(`Re-init for ${deviceId} failed: ${e}`);
